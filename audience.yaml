@@ -23,7 +23,7 @@ importance:
 
 # ── 코드로 거르는 제외 조건(프롬프트는 부탁일 뿐이라 이중으로 막는다) ──
 exclusion_rules:
-  politics:                       # 제목·요약에 이 낱말이 있으면 선별 후보에서 뺀다(강사님 요청: 정치 주제 금지)
+  politics:                       # 제목·요약에 이 낱말이 있으면 선별 후보에서 뺀다(과제 조건, REPORT.md 3절 참고)
     - 'protest\w*'
     - 'politic\w*'
     - 'election\w*'
