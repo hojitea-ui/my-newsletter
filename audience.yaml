@@ -65,24 +65,8 @@ sources:
     url: https://van-magazine.com/feed/
   - name: Guardian Classical
     url: https://www.theguardian.com/music/classical-music-and-opera/rss
-  - name: Slipped Disc
-    url: https://slippedisc.com/feed/
-    topic_keywords:
-      - contemporary
-      - new music
-      - new work
-      - world premiere
-      - 'premiere[sd]?'
-      - composer
-      - commission
-      - avant-garde
-      - experimental
-      - minimalis
-      - electroacoustic
-      - ensemble
-      - festival
-      - '(?:20th|21st)[- ]century'
-      - living composer
+  # Slipped Disc(https://slippedisc.com/feed/)는 측정 결과 탈락해 뺐다: 본문이 600자 이상인 글이 최신 3건 중 1건뿐(C 미달),
+  # 현대음악 적합 10%. 근거는 store/source_audit.json. 일반 뉴스 소스를 다시 쓰려면 위 topic_keywords 형식으로 키워드를 붙인다.
 
 # ── 파이프라인 수치 ──────────────────────────────────────────────
 pipeline:
