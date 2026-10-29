@@ -72,6 +72,18 @@ python run.py --send               # 검수를 통과한 결과를 실제로 발
 - **웹훅 주소와 API 키는 저장소에 없습니다.** 실행 기록(`metrics.jsonl`)에도 본문 전문, 주소, 키를 넣지 않습니다.
 - **본문 전문을 재배포하지 않습니다.** 발행물에는 요약과 원문 링크만 들어갑니다.
 
+## 매일 자동 실행 (GitHub Actions)
+
+[.github/workflows/daily.yml](.github/workflows/daily.yml)이 **매일 아침 7:30(한국 시간)** 에 파이프라인을 돌립니다. 기본은 보내지 않는 dry-run이고, 아래를 설정해야 실제로 발송합니다.
+
+1. 저장소 **Settings → Secrets and variables → Actions → Secrets** 에 `OPENAI_API_KEY`와 `DISCORD_WEBHOOK_URL`을 추가합니다.
+2. 같은 화면의 **Variables** 에 `DAILY_SEND` = `true`를 추가하면 정해진 시각 실행이 발송까지 합니다. 변수가 없거나 `true`가 아니면 dry-run입니다.
+3. 처음에는 **Actions 탭 → daily-briefing → Run workflow** 로 손으로 실행해 보세요. `send`를 끄면 dry-run, 켜면 실제 발송입니다.
+
+- **중복 발행 방지:** 발송에 성공한 기사의 주소를 `store/sent.jsonl`에 기록하고 다음 실행의 수집에서 건너뜁니다. 발송한 날에는 이 파일과 `store/metrics.jsonl`이 저장소에 자동 커밋됩니다(dry-run은 기록하지 않습니다).
+- **새 글이 없는 날:** "오늘은 조용합니다" 카드 한 장을 보냅니다(멈춘 건지 소식이 없는 건지 구분하려고).
+- **주의:** 공개 저장소라서 Actions 실행 로그(기사 제목·요약·링크)도 누구나 볼 수 있습니다. 비밀 값은 GitHub이 로그에서 가립니다. 실행마다 OpenAI 호출 비용이 약간 듭니다.
+
 ## 폴더 구조
 
 ```
@@ -80,8 +92,10 @@ python run.py --send               # 검수를 통과한 결과를 실제로 발
 ├── audience.yaml           # 독자, 중요도 기준, 제외 조건, 소스, 파이프라인 수치
 ├── audit_sources.py        # 소스 후보 측정 스크립트
 ├── requirements.txt        # 의존성
+├── .github/workflows/daily.yml  # 매일 자동 실행(GitHub Actions)
 ├── store/
 │   ├── metrics.jsonl       # 실행·검수 기록(실행 1회 = 1줄)
+│   ├── sent.jsonl          # 이미 발송한 기사(중복 방지, 발송 후 생성)
 │   └── source_audit.json   # 소스 채택표의 측정 원자료
 ├── docs/discord_result.png # 발행된 결과 화면
 ├── 실습파일.ipynb           # 강의 노트북을 따라 단계별로 만든 학습 원본
@@ -92,6 +106,7 @@ python run.py --send               # 검수를 통과한 결과를 실제로 발
 
 - 소스는 영어 해외 매체 4곳뿐입니다(국내 후보는 RSS·Atom을 찾지 못했습니다).
 - 정치 필터는 영어 낱말 기준이고, 검수는 LLM 판정이 섞여 있어 확률적입니다.
-- 매일 자동 실행(GitHub Actions)과 이미 보낸 기사의 중복 방지는 아직 없습니다.
+- 자동 실행은 GitHub Actions의 cron에 맡기므로 정각에 도는 것이 보장되지 않고, 공개 저장소는 60일 동안 활동이 없으면 스케줄이 꺼질 수 있습니다.
+- 중복 방지는 주소 기준이라, 같은 소식을 다른 매체가 쓴 경우는 선별 단계의 같은 사건 라벨이 막습니다.
 
 자세한 내용은 [REPORT.md](REPORT.md)의 6절을 보세요.

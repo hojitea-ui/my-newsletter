@@ -1,0 +1,68 @@
+name: daily-briefing
+
+# 매일 아침 7:30(한국 시간)에 파이프라인을 돌린다. GitHub의 cron은 UTC 기준이라 한국 시간 -9시간(전날 22:30)으로 적는다.
+# 정각에 도는 것은 보장되지 않고, 사용량이 많으면 몇 분~수십 분 늦을 수 있다.
+on:
+  schedule:
+    - cron: "30 22 * * *"
+  workflow_dispatch:                # Actions 탭에서 손으로 실행할 수도 있다
+    inputs:
+      send:
+        description: "Discord로 실제 발송 (끄면 보내지 않는 dry-run)"
+        type: boolean
+        default: false
+
+# 발송한 기사 기록(store/sent.jsonl)과 실행 기록(store/metrics.jsonl)을 저장소에 커밋해야 한다
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"        # 개발·검증한 버전
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 파이프라인 실행
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT: ${{ github.event_name }}
+          INPUT_SEND: ${{ inputs.send }}
+          VAR_SEND: ${{ vars.DAILY_SEND }}
+        run: |
+          # 손으로 실행하면 체크박스, 정해진 시각 실행이면 저장소 변수 DAILY_SEND가 true일 때만 발송한다
+          if [ "$EVENT" = "workflow_dispatch" ]; then SEND="$INPUT_SEND"; else SEND="$VAR_SEND"; fi
+          echo "SEND=$SEND" >> "$GITHUB_ENV"
+          if [ "$SEND" = "true" ]; then
+            python run.py --send
+          else
+            echo "dry-run: 보내지 않습니다 (발송하려면 저장소 변수 DAILY_SEND=true)"
+            python run.py --no-metrics
+          fi
+
+      - name: 발송한 기사와 실행 기록 저장
+        if: env.SEND == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A store                # 조용한 날에는 sent.jsonl이 없을 수 있어 폴더째 추가한다
+          if git diff --cached --quiet; then
+            echo "저장할 변경 없음"
+          else
+            git commit -m "chore: 일일 브리핑 실행 기록 $(date -u +%F)"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
