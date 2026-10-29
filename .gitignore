@@ -1,0 +1,4 @@
+.env
+.omc/
+__pycache__/
+select_log.jsonl
