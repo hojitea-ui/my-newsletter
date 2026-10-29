@@ -141,6 +141,8 @@ def check_draft(d) -> list:
         issues.append(f"headline {len(d.headline)}자(30자 이내여야 함)")
     if re.search(r"요약|후기", d.headline):                       # 정보 없는 헤드라인('…공연 리뷰 요약')
         issues.append("headline에 '요약'·'후기'가 있음(무슨 일이 있었는지를 쓸 것)")
+    if re.search(r"(?:에서|에게|으로|[에와을를은는])$", d.headline.strip()):     # '…무대에'처럼 조사로 끝나면 문장이 끊긴 헤드라인
+        issues.append("headline이 조사로 끝나 문장이 끊김(명사나 서술형으로 끝낼 것)")
     n = len(SENT_END.findall(d.summary))
     if n != 3:
         issues.append(f"summary {n}문장(정확히 3문장이어야 함)")
@@ -396,7 +398,7 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
                     model=model, temperature=0, max_tokens=60,
                     messages=[{"role": "system", "content": "한국어 헤드라인을 뜻을 유지하며 25자 이내로 고치세요. "
                                                             "인명·작품명은 줄여도 되고, '요약'·'후기' 같은 말은 빼고 "
-                                                            "무슨 일이 있었는지가 드러나게 하세요. 헤드라인만 답하세요."},
+                                                            "무슨 일이 있었는지가 드러나게 하고 '에·와·을·를·은·는' 같은 조사로 끝나지 않게 하세요. 헤드라인만 답하세요."},
                               {"role": "user", "content": d.headline}]).choices[0].message.content.strip().rstrip(".")
                 if not check_draft(d):
                     return d, []
