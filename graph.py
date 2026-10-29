@@ -187,6 +187,15 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
     topic_filters = {s["name"]: re.compile("|".join(s["topic_keywords"]), re.I)
                      for s in cfg["sources"] if s.get("topic_keywords")}
 
+    body_th = cfg["exclusion_rules"].get("body_hits_threshold", 3)
+    body_cache = {}                                     # 선별에서 읽은 본문을 취재에서 다시 쓴다
+
+    def get_body(url):
+        if url not in body_cache:
+            d0 = trafilatura.fetch_url(url)
+            body_cache[url] = trafilatura.extract(d0) if d0 else None
+        return body_cache[url]
+
     imp = cfg["importance"]
     criteria = (f"독자는 {cfg['audience']['persona'].strip()}\n"
                 + "".join(f"- {x}\n" for x in imp["include"])
@@ -279,7 +288,17 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
             gates.append({"pass_last": chunk[ranked[PASS - 1].index]["title"] if len(ranked) >= PASS else None,
                           "first_out": chunk[ranked[PASS].index]["title"] if len(ranked) > PASS else None})
         ranked = ask_picks(survivors, len(survivors))   # 본선 — 한 화면에 놓고 전부 순위(건너뛴 자리를 채울 예비)
-        seen_events, per_src, finals, dropped = set(), Counter(), [], []
+        seen_events, per_src, finals, dropped, body_skipped = set(), Counter(), [], [], []
+
+        def political_body(p):
+            """최종 후보의 본문을 직접 읽어 정치 낱말이 body_th번 이상이면 그 목록(정치 중심 기사). 아니면 빈 목록."""
+            it = survivors[p.index]
+            hits = politics.findall(get_body(it["url"]) or "")
+            if len(hits) >= body_th:
+                body_skipped.append({"title": it["title"], "hits": len(hits), "words": sorted({h.lower() for h in hits})[:6]})
+                return hits
+            return []
+
         for p in ranked:
             label, src = p.event.strip().lower(), survivors[p.index]["source"]
             if len(finals) >= TARGET:
@@ -288,6 +307,8 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
                 dropped.append((p, "같은 사건"))
             elif per_src[src] >= PER_SOURCE:            # 한 매체가 자리를 다 차지하지 못하게
                 dropped.append((p, "매체 상한"))
+            elif (hits := political_body(p)):           # 본문이 정치 중심이면 건너뛰고 다음 순위로 채운다
+                dropped.append((p, f"정치성 본문({len(hits)}회)"))
             else:
                 seen_events.add(label)
                 per_src[src] += 1
@@ -296,20 +317,23 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
         for item in list(dropped):                      # 상한 때문에 TARGET건이 안 되면, 상한에 밀린 것부터 순위대로 채운다
             if len(finals) >= TARGET:
                 break
-            if item[1] == "매체 상한":
+            if item[1] == "매체 상한" and not political_body(item[0]):
                 dropped.remove(item)
                 finals.append(item[0])
                 relaxed += 1
         finals.sort(key=ranked.index)
-        picked = [{**survivors[p.index], "event": p.event, "reason": p.reason} for p in finals]
+        picked = [{**survivors[p.index], "event": p.event, "reason": p.reason,
+                   "body": body_cache.get(survivors[p.index]["url"])} for p in finals]
         ratio = len(finals) / len(survivors)
         log = (f"② 선별   {len(items)} → 예선 {len(survivors)} → {len(finals)}건 · 발행 비율 {ratio:.2f}"
                + (f" · 정치성 {len(skipped)}건 제외" if skipped else "")
+               + (f" · 정치성 본문 {len(body_skipped)}건 제외" if body_skipped else "")
                + (f" · 매체 상한 완화 {relaxed}건" if relaxed else "")
                + (f" · {TARGET}건 미달({len(finals)}건)" if len(finals) < TARGET else ""))
         return {"picked": picked, "log": [log],
                 "stats": {"select": {
-                    "candidates": len(items), "political_skipped": skipped, "survivors": len(survivors),
+                    "candidates": len(items), "political_skipped": skipped, "political_body_skipped": body_skipped,
+                    "survivors": len(survivors),
                     "picked_count": len(finals), "ratio": round(ratio, 2), "relaxed": relaxed, "gates": gates,
                     "picked": [{"title": x["title"], "source": x["source"], "event": x["event"], "reason": x["reason"]} for x in picked],
                     "dropped": [{"title": survivors[p.index]["title"], "event": p.event, "reason": p.reason, "why": why}
@@ -345,8 +369,7 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
 
     def report(s: ReportIn) -> dict:                    # 기사 한 건을 맡는다
         it = s["item"]
-        d0 = trafilatura.fetch_url(it["url"])
-        body = trafilatura.extract(d0) if d0 else None
+        body = it.get("body") or get_body(it["url"])     # 선별에서 읽은 본문이 있으면 다시 받지 않는다
         if not body or len(body) < P["body_min_chars"]:
             reason = f"본문 {len(body or '')}자(기준 {P['body_min_chars']}자 미만)"
             return {"drafted": [], "excluded": [{"source": it["source"], "title": it["title"], "reason": reason}],
