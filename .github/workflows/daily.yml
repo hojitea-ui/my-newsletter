@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5          # v5: Node 24로 바뀐 것 외에 v4와 동작이 같은 가장 낮은 버전
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6      # v6: Node 24로 바뀐 것이 주된 변경(Node 20 지원 종료 경고 해소)
         with:
           python-version: "3.14"        # 개발·검증한 버전
           cache: pip
