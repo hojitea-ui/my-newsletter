@@ -44,6 +44,38 @@ def make_client() -> OpenAI:
     return OpenAI(default_headers={"Accept-Encoding": "gzip, deflate"})
 
 
+# ── 이미 보낸 기사 기록(중복 발행 방지) ─────────────────────────────
+SENT_LOG = Path(__file__).parent / "store" / "sent.jsonl"
+
+
+def _key(url: str) -> str:
+    return url.split("?")[0].rstrip("/")                # 추적용 꼬리표를 떼고 같은 글인지 비교
+
+
+def load_sent(path=None) -> set:
+    """이미 발행한 기사 주소(정규화) 집합. 기록 파일이 없으면 빈 집합."""
+    path = Path(path or SENT_LOG)
+    if not path.exists():
+        return set()
+    out = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            out.add(_key(json.loads(line)["url"]))
+        except Exception:                               # 깨진 줄은 건너뛴다
+            continue
+    return out
+
+
+def mark_sent(articles: list, path=None) -> None:
+    """실제로 발송에 성공한 기사만 기록한다(dry-run은 기록하지 않는다)."""
+    path = Path(path or SENT_LOG)
+    path.parent.mkdir(exist_ok=True)
+    at = datetime.now().isoformat(timespec="seconds")
+    with path.open("a", encoding="utf-8") as f:
+        for a in articles:
+            f.write(json.dumps({"url": a["url"], "headline": a["headline"], "sent_at": at}, ensure_ascii=False) + "\n")
+
+
 # ── State ───────────────────────────────────────────────────────
 def _merge(a: dict, b: dict) -> dict:
     return {**(a or {}), **(b or {})}
@@ -218,6 +250,7 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
         cutoff = datetime.now(timezone.utc) - timedelta(hours=s["hours"])
         items, dead, empty, seen = [], [], [], set()
         per_source, filtered = {}, 0
+        sent, already = load_sent(), 0                  # 이미 보낸 기사는 다시 모으지 않는다
         for src in cfg["sources"]:
             name, url = src["name"], src["url"]
             try:
@@ -232,8 +265,11 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
                 at = published_at(e)
                 if not at or at < cutoff:               # time window 밖이거나 날짜가 없으면 버린다
                     continue
-                key = e.link.split("?")[0].rstrip("/")  # 추적용 꼬리표를 떼고 비교
+                key = _key(e.link)
                 if key in seen:
+                    continue
+                if key in sent:
+                    already += 1                        # 이미 발행한 글
                     continue
                 summary = strip_tags(e.get("summary", ""))[:300]
                 topic = topic_filters.get(name)
@@ -247,11 +283,13 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
                 empty.append(name)                      # 응답은 왔지만 window 안에 0건
         log = (f"① 수집   {s['hours']}시간 time window · {len(items)}건"
                + (f" · 주제 필터로 {filtered}건 제외" if filtered else "")
+               + (f" · 이미 발행 {already}건 제외" if already else "")
                + (f" · 응답 없음 {dead}" if dead else "")
                + (f" · 0건 {empty}" if empty else ""))
         return {"collected": items, "log": [log],
                 "stats": {"collect": {"window_hours": s["hours"], "collected": len(items), "per_source": per_source,
-                                      "topic_filtered": filtered, "dead_sources": dead, "empty_sources": empty}}}
+                                      "topic_filtered": filtered, "already_sent": already,
+                                      "dead_sources": dead, "empty_sources": empty}}}
 
     # ② 중요도 선별 ─────────────────────────────────────────────
     def ask_picks(items, n):
@@ -420,6 +458,8 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
         lead = f"오늘은 {len(arts)}건을 골랐습니다. ({srcs})" if arts else ""
         dry_run = os.environ.get("DRY_RUN", "1") == "1"                  # 기본은 보내지 않음
         sent = send(cfg, today, lead, arts, webhook=os.environ.get("DISCORD_WEBHOOK_URL"), dry_run=dry_run)
+        if sent is True and arts:                        # 실제로 나간 기사만 '보낸 기사'로 기록 → 다음 실행에서 건너뛴다
+            mark_sent(arts)
         state = "dry-run" if sent is None else ("sent" if sent else "failed")
         label = f"{len(arts)}건" if arts else "조용합니다"
         shown = {"dry-run": "dry-run", "sent": "보냄", "failed": "발송 실패 — 위 출력의 상태 코드 확인"}[state]
