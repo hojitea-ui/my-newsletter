@@ -2,6 +2,8 @@
 
 영어 현대음악 매체의 RSS 피드를 모아서, 그 주에 읽을 만한 기사 5건을 고르고, 본문을 읽고 한국어로 요약·인사이트를 만든 뒤, 원문과 대조해 검수하고, 통과한 것만 Discord로 발행하는 LangGraph 에이전트입니다.
 
+> **제출본은 태그 [`v1.0`](https://github.com/hojitea-ui/my-newsletter/tree/v1.0)입니다.** 이 저장소는 제출 뒤에 매일 자동 실행(GitHub Actions)이 `store/` 기록 파일을 갱신하므로 `main`은 계속 바뀝니다. 코드와 보고서는 태그와 같고, 달라지는 것은 `store/metrics.jsonl`과 `store/sent.jsonl`뿐입니다. 본문에서 "제출 시점"이라고 한 기록은 이 태그 기준입니다.
+
 ## 실행 방법과 제출 파일
 
 ```bash
