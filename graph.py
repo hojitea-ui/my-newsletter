@@ -445,6 +445,10 @@ def build_graph(cfg: dict = None, client: OpenAI = None):
             else:
                 notes.append(f"   불합격 {d['source']} · {' / '.join(v.problems)[:120]}")
                 failed.append({"source": d["source"], "title": d["title"], "check": "llm", "problems": v.problems})
+        if s["drafted"] and all(f["check"] == "call_error" for f in failed) and len(failed) == len(s["drafted"]):
+            # 판정을 한 건도 못 했다(API 오류·크레딧 소진 등). '오늘은 조용합니다'로 보내면 소식이 없는 날과 구분이 안 되니
+            # 발송하지 않고 실패로 끝낸다. 보내지 못한 기사는 sent.jsonl에 없으므로 다음 실행에서 다시 고른다.
+            raise RuntimeError(f"검수 호출이 모두 실패했습니다({failed[0]['problems'][0]}). 발송하지 않고 중단합니다.")
         return {"verified": kept,
                 "log": [f"④ 검수   {len(s['drafted'])} → {len(kept)}건 · 불합격 {len(failed)}건"] + notes,
                 "stats": {"verify": {"drafted": len(s["drafted"]), "verified": len(kept), "verify_fail": len(failed), "failed": failed}}}
