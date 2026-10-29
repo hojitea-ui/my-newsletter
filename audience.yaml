@@ -1,0 +1,88 @@
+# 현대음악 뉴스레터 에이전트 설정 — 타깃 독자, 중요도 기준, 제외 조건, 소스, 파이프라인 수치
+# graph.py가 이 파일을 읽어서 쓴다. 기준을 바꿀 때는 코드가 아니라 이 파일을 고친다.
+
+audience:
+  field: Contemporary Classical Music (현대음악)
+  language: ko                      # 발행 언어. 소스는 영어 피드
+  persona: >
+    국내에서 현대음악을 챙겨 듣고 연주·작곡·기획하는 사람.
+    해외 매체의 새 작품·연주·논쟁을 따라가고 싶지만 영어 피드를 매일 훑을 시간은 없어서
+    '이번 주 무슨 일이 있었나'를 한국어로 짧게 받아 보기를 원한다.
+
+# ── 선별(② select) ───────────────────────────────────────────────
+importance:
+  question: 이번 주 현대음악 흐름을 알려 줄 만한가        # 중요도 판단 문장
+  include:
+    - 새 작품의 초연·위촉·신보 발매, 생존 작곡가·앙상블의 활동인가
+    - 현대음악 페스티벌·기획, 분야의 흐름이나 논쟁(창작 환경·지원·기술)을 다루는가
+  exclude:                                                # 프롬프트에 '버릴 것'으로 들어간다
+    - 바흐~말러 같은 정전 레퍼토리 중심 공연 리뷰
+    - 현대음악과 무관한 부고·인사·스캔들
+    - 시즌·티켓 홍보성 소식
+    - 정치·선거·시위·사회운동이 중심인 기사
+
+# ── 코드로 거르는 제외 조건(프롬프트는 부탁일 뿐이라 이중으로 막는다) ──
+exclusion_rules:
+  politics:                       # 제목·요약에 이 낱말이 있으면 선별 후보에서 뺀다(강사님 요청: 정치 주제 금지)
+    - 'protest\w*'
+    - 'politic\w*'
+    - 'election\w*'
+    - 'tear gas'
+    - 'riots?'
+    - 'rioters?'
+    - 'rioting'
+    - 'civil disobedience'
+    - 'activis\w*'
+    - 'demonstrators?'
+    - 'war'
+    - 'gaza'
+    - 'trump'
+
+# ── 소스(① collect) ──────────────────────────────────────────────
+# topic_keywords: 일반 클래식 뉴스라서 현대음악 글만 남겨야 하는 소스. 제목·요약에 낱말이 하나라도 있어야 통과
+sources:
+  - name: I Care If You Listen
+    url: https://icareifyoulisten.com/feed/
+  - name: Sequenza21
+    url: https://sequenza21.com/feed/
+  - name: VAN Magazine
+    url: https://van-magazine.com/feed/
+  - name: Guardian Classical
+    url: https://www.theguardian.com/music/classical-music-and-opera/rss
+  - name: Slipped Disc
+    url: https://slippedisc.com/feed/
+    topic_keywords:
+      - contemporary
+      - new music
+      - new work
+      - world premiere
+      - 'premiere[sd]?'
+      - composer
+      - commission
+      - avant-garde
+      - experimental
+      - minimalis
+      - electroacoustic
+      - ensemble
+      - festival
+      - '(?:20th|21st)[- ]century'
+      - living composer
+
+# ── 파이프라인 수치 ──────────────────────────────────────────────
+pipeline:
+  hours: 336                      # 수집 time window(2주). 글이 드문 소스(Sequenza21 약 12일, VAN 약 8일)를 담으려고
+  batch: 40                       # 예선 묶음 크기(한 번에 LLM에 보여 주는 후보 수)
+  pass_per_batch: 12              # 묶음마다 예선 통과 건수. 매체 상한 때문에 최종 5건보다 넉넉히
+  target: 5                       # 최종 발행 건수(루브릭: 3~5건)
+  per_source: 2                   # 한 매체에서 최종에 넣을 수 있는 최대 건수
+  body_min_chars: 600             # 본문 추출이 이보다 짧으면 취재에서 제외
+  body_max_chars: 6000            # 요약·검수에 넘기는 본문 최대 길이
+  max_draft_tries: 3              # 요약 형식 검사에 실패했을 때 다시 쓰는 최대 횟수
+  model: gpt-4.1-mini
+
+# ── 발행(⑤ publish) ──────────────────────────────────────────────
+publish:
+  username: 편집실
+  title_suffix: 현대음악 브리핑
+  # 웹훅 주소는 여기 쓰지 않는다. .env의 DISCORD_WEBHOOK_URL로만 읽는다.
+  # DRY_RUN 기본값은 1(보내지 않음). 실제로 보내려면 .env에 DRY_RUN=0.

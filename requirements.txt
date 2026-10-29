@@ -1,0 +1,9 @@
+# 현대음악 뉴스레터 에이전트 의존성 — 아래 버전으로 개발·검증했고(Python 3.14), 같은 이상 버전이면 동작해야 한다
+langgraph>=1.2          # 개발·검증: 1.2.18  (StateGraph, Send)
+feedparser>=6.0         # 개발·검증: 6.0.14  (RSS·Atom 읽기)
+requests>=2.32          # 개발·검증: 2.34.2  (피드·웹훅 HTTP 요청)
+trafilatura>=2.0        # 개발·검증: 2.3.1   (웹페이지 본문 추출)
+openai>=1.50            # 개발·검증: 3.39.0  (구조화된 출력 parse 사용)
+pydantic>=2.8           # 개발·검증: 2.13.5  (구조화된 출력 스키마)
+python-dotenv>=1.0      # 개발·검증: 1.2.3   (.env 읽기)
+PyYAML>=6.0             # 개발·검증: 6.0.3   (audience.yaml 읽기)
