@@ -10,6 +10,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -50,6 +51,40 @@ def build_record(cfg: dict, final: dict, dry_run: bool, started: datetime, secon
     }
 
 
+QUOTA_WORDS = ("spend limit", "insufficient_quota", "exceeded your current quota", "billing", "hard limit")
+
+
+def _is(e: Exception, name: str) -> bool:
+    return any(c.__name__ == name for c in type(e).__mro__)
+
+
+def explain_error(e: Exception):
+    """알려진 오류를 (제목, 한국어 안내 한 줄)로 바꾼다. 모르는 오류는 None → 원래 트레이스백을 그대로 보여 준다."""
+    low = str(e).lower()
+    if _is(e, "RateLimitError") or (isinstance(e, RuntimeError) and "RateLimitError" in str(e)):
+        if any(w in low for w in QUOTA_WORDS):
+            return ("OpenAI 한도 초과",
+                    "OpenAI 사용 한도(크레딧 또는 월 한도)를 초과해 중단했습니다. 발송하지 않았고 발송 기록(sent.jsonl)도 바뀌지 않아 "
+                    "한도를 풀면 다음 실행에서 이어서 처리합니다. platform.openai.com → Settings → Limits에서 한도와 사용량을 확인하세요.")
+        return ("OpenAI 호출 거절(429)",
+                "OpenAI가 요청을 거절했습니다(429). 한도 초과이거나 짧은 시간에 호출이 몰렸을 수 있습니다. 발송하지 않았고 발송 기록도 바뀌지 않았습니다. "
+                "아래 원인 줄의 원문 메시지를 확인하세요.")
+    if _is(e, "AuthenticationError") or _is(e, "PermissionDeniedError"):
+        return ("OpenAI 키 오류",
+                "OpenAI 키가 잘못됐거나 권한이 없습니다. GitHub Secrets의 OPENAI_API_KEY(로컬은 .env)를 확인하세요. 발송하지 않았습니다.")
+    if _is(e, "APIConnectionError"):                       # 시간 초과(APITimeoutError)도 여기에 속한다
+        return ("OpenAI 연결 실패", "OpenAI에 연결하지 못했습니다(네트워크 오류나 시간 초과). 잠시 뒤 다시 실행하세요. 발송하지 않았습니다.")
+    if _is(e, "InternalServerError"):
+        return ("OpenAI 서버 오류", "OpenAI 서버가 오류(5xx)를 냈습니다. 잠시 뒤 다시 실행하세요. 발송하지 않았습니다.")
+    return None
+
+
+def safe_error(e: Exception) -> str:
+    """기록용 오류 문자열. 주소·키가 섞여 있을 수 있는 부분은 가리고 길이를 줄인다."""
+    msg = re.sub(r"https?://\S+|/api/webhooks/\S+|sk-\S+", "***", str(e))
+    return f"{type(e).__name__}: {msg}"[:300]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="현대음악 뉴스레터 에이전트 실행")
     ap.add_argument("--send", action="store_true", help="검수를 통과한 결과를 실제로 발행한다(기본은 보내지 않음)")
@@ -77,7 +112,14 @@ def main(argv=None) -> int:
     try:
         final = app.invoke(state)
     except Exception as e:                                 # 죽은 실행도 기록에 남긴다
-        error = f"{type(e).__name__}: {e}"
+        error = safe_error(e)
+        hint = explain_error(e)
+        if hint:                                           # 알려진 오류는 긴 트레이스백 대신 한국어 안내 한 줄만 남긴다
+            title, msg = hint
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                print(f"::error title={title}::{msg}")    # Actions 실행 요약 화면에 바로 보인다
+            print(f"\n[실패] {title}: {msg}\n원인: {error}", file=sys.stderr)
+            raise SystemExit(1) from None
         raise
     finally:
         if not args.no_metrics:
